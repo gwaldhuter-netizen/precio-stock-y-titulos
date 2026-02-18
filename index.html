@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Waldhuter - Buscador (v8)</title>
+<title>Waldhuter - Buscador (v8.3)</title>
 <style>
 :root{font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial,sans-serif}
 body{margin:0;padding:16px;line-height:1.25}
@@ -43,7 +43,7 @@ details>summary{cursor:pointer}
 </head>
 <body>
 <h1>Waldhuter - Buscador</h1>
-<div class="muted">v8.1 (completa + búsqueda por título): Buscar + Caja + Historial. Lista grande en <span class="pill">IndexedDB</span> (iPhone OK). Si algo falla, lo ves en “Diagnóstico”.</div>
+<div class="muted">v8.3 (completa + título): Buscar (ISBN o Título) + Caja + Historial. Lista grande en <span class="pill">IndexedDB</span> (iPhone OK).</div>
 
 <div class="tabs">
   <div id="tabBuscar" class="tab active">Buscar</div>
@@ -67,7 +67,7 @@ details>summary{cursor:pointer}
 <div id="viewBuscar">
   <div class="card">
     <label>Buscar por título</label>
-    <input id="qtitle" type="text" placeholder="Escribí parte del título (ej: principito)" />
+    <input id="qtitle" type="text" placeholder="Escribí parte del título (mín. 3 letras)" />
     <div class="row">
       <button id="buscarTituloBtn" class="secondary" type="button">Buscar título</button>
       <button id="limpiarTituloBtn" class="secondary" type="button">Limpiar</button>
@@ -75,6 +75,7 @@ details>summary{cursor:pointer}
     <div id="titleResults" style="margin-top:12px;"></div>
 
     <div class="muted" style="margin-top:12px;">— o —</div>
+
     <label>ISBN-13</label>
     <input id="isbn" type="text" inputmode="numeric" placeholder="Escaneá/pegá el ISBN (13 dígitos)" />
     <div class="row">
@@ -139,7 +140,7 @@ const tabHist=document.getElementById("tabHist");
 const viewBuscar=document.getElementById("viewBuscar");
 const viewCaja=document.getElementById("viewCaja");
 const viewHist=document.getElementById("viewHist");
-function setTab(which){
+function setTab(which){ 
   for(const [t,v] of [[tabBuscar,viewBuscar],[tabCaja,viewCaja],[tabHist,viewHist]]){
     const active=t.id===which;
     t.classList.toggle("active",active);
@@ -156,19 +157,23 @@ tabHist.onclick=()=>setTab("tabHist");
 const elStatus=document.getElementById("status");
 const elUpdateBtn=document.getElementById("updateBtn");
 const elClearCacheBtn=document.getElementById("clearCacheBtn");
-const elISBN=document.getElementById("isbn");
+
 const elQTitle=document.getElementById("qtitle");
 const elBuscarTituloBtn=document.getElementById("buscarTituloBtn");
 const elLimpiarTituloBtn=document.getElementById("limpiarTituloBtn");
 const elTitleResults=document.getElementById("titleResults");
+
+const elISBN=document.getElementById("isbn");
 const elBuscarBtn=document.getElementById("buscarBtn");
 const elLimpiarBtn=document.getElementById("limpiarBtn");
 const elResult=document.getElementById("result");
+
 const elCart=document.getElementById("cart");
 const elTotal=document.getElementById("totalPill");
 const elResetCart=document.getElementById("resetCartBtn");
 const elSaveSale=document.getElementById("saveSaleBtn");
 const elShare=document.getElementById("shareBtn");
+
 const elHist=document.getElementById("hist");
 const elExportHist=document.getElementById("exportHistBtn");
 const elClearHist=document.getElementById("clearHistBtn");
@@ -178,12 +183,9 @@ const modalBody=document.getElementById("modalBody");
 const modalYes=document.getElementById("modalYes");
 const modalNo=document.getElementById("modalNo");
 
-function setStatus(t, ok=null){
-  elStatus.textContent=t;
-  elStatus.className="muted"+(ok===true?" ok":ok===false?" bad":"");
-}
+function setStatus(t, ok=null){ elStatus.textContent=t; elStatus.className="muted"+(ok===true?" ok":ok===false?" bad":""); }
 function normalizeISBN(s){ return (s||"").toString().replace(/[^\dX]/gi,"").trim(); }
-function parsePriceToNumber(p){
+function parsePriceToNumber(p){ 
   let s=String(p||"").trim(); if(!s) return 0;
   s=s.replace(/\s/g,"").replace(/[^0-9.,-]/g,"");
   if(s.includes(".")&&s.includes(",")) s=s.replace(/\./g,"").replace(",", ".");
@@ -191,14 +193,13 @@ function parsePriceToNumber(p){
   const n=Number(s); return isFinite(n)?n:0;
 }
 function fmtMoney(n){ try{return n.toLocaleString("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:2});}catch{return "$"+n;} }
-function nowISO(){ try{return new Date().toISOString();}catch{return ""; } }
+function nowISO(){ try{return new Date().toISOString();}catch{return "";} }
 
 /* ===== Storage ===== */
-const META_KEY="waldhuter_meta_v8";
-const CART_KEY="waldhuter_cart_v8";
-const HIST_KEY="waldhuter_hist_v8";
-
-const IDB_NAME="waldhuter_v8";
+const META_KEY="waldhuter_meta_v83";
+const CART_KEY="waldhuter_cart_v83";
+const HIST_KEY="waldhuter_hist_v83";
+const IDB_NAME="waldhuter_v83";
 const IDB_STORE="db";
 
 function metaLoad(){ try{ return JSON.parse(localStorage.getItem(META_KEY)||"null"); }catch(e){ log("meta_parse_error", String(e)); return null; } }
@@ -283,11 +284,70 @@ async function updateCentral(force=false){
   await idbPut("central", db);
   metaSave({version: remote.version, count: remote.count||Object.keys(db).length, updatedAt: new Date().toISOString()});
   DB=db;
+  SEARCH_IDX=null;
   setStatus("Lista actualizada ✅ ("+Number(Object.keys(db).length).toLocaleString("es-AR")+" ISBN)", true);
   return true;
 }
 
-/* ===== Buscar + modal add ===== */
+/* ===== Title Search (DEFINED BEFORE USE) ===== */
+function normText(s){
+  return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+}
+function buildSearchIndex(){
+  if(!DB || SEARCH_IDX) return;
+  const out=[];
+  for(const isbn in DB){
+    const r=DB[isbn]||{};
+    out.push({
+      i:isbn,
+      tn:normText(r.t||""),
+      t:r.t||"",
+      a:r.a||"",
+      e:r.e||"",
+      p:r.p||"",
+      s:r.s||""
+    });
+  }
+  SEARCH_IDX=out;
+  log("title_index_count", out.length);
+}
+function renderTitleHit(hit){
+  const price=parsePriceToNumber(hit.p);
+  const stock=(hit.s||"").toString().trim();
+  const a=(hit.a||"").toString().trim();
+  const e=(hit.e||"").toString().trim();
+  return `<div class="card" style="margin:10px 0;">
+    <div class="result-title">${hit.t||"(sin título)"}</div>
+    <div class="result-line"><b>ISBN:</b> ${hit.i}</div>
+    <div class="result-line"><b>PVP:</b> ${fmtMoney(price)}</div>
+    ${a?`<div class="result-line"><b>Autor:</b> ${a}</div>`:""}
+    ${e?`<div class="result-line"><b>Editorial:</b> ${e}</div>`:""}
+    ${stock?`<div class="result-line"><b>Stock:</b> ${stock}</div>`:""}
+    <button type="button" data-add-isbn="${hit.i}">Agregar a la cuenta</button>
+  </div>`;
+}
+function searchTitle(){
+  const q=normText(elQTitle.value||"").trim();
+  if(!q){ elTitleResults.innerHTML=""; return; }
+  if(q.length<3){
+    elTitleResults.innerHTML='<div class="muted">Escribí al menos 3 letras.</div>';
+    return;
+  }
+  if(!DB){
+    elTitleResults.innerHTML='<div class="muted bad">No hay lista cargada. Tocá “Actualizar lista”.</div>';
+    return;
+  }
+  buildSearchIndex();
+  const hits=[];
+  for(const h of SEARCH_IDX){
+    if(h.tn.includes(q)) hits.push(h);
+    if(hits.length>=30) break;
+  }
+  if(hits.length===0){ elTitleResults.innerHTML='<div class="muted">Sin resultados.</div>'; return; }
+  elTitleResults.innerHTML = hits.map(renderTitleHit).join("");
+}
+
+/* ===== Buscar ISBN + modal add ===== */
 function renderNotFound(code){ return `<div class="card"><div class="result-title bad">No lo encontré</div><div class="result-line"><b>ISBN:</b> ${code}</div></div>`; }
 function renderRow(code,row){
   const price=parsePriceToNumber(row.p);
@@ -332,26 +392,9 @@ function lookup(){
   elResult.innerHTML=renderRow(code,row);
   openModal({code,row,price:parsePriceToNumber(row.p)});
 }
-elBuscarBtn.onclick=lookup;
-elLimpiarBtn.onclick=()=>{ elISBN.value=""; elResult.innerHTML=""; elISBN.focus(); };
-elISBN.addEventListener("keydown",(e)=>{ if(e.key==="Enter") lookup(); });
-
-elBuscarTituloBtn.onclick=searchTitle;
-elLimpiarTituloBtn.onclick=()=>{ elQTitle.value=""; elTitleResults.innerHTML=""; elQTitle.focus(); };
-elQTitle.addEventListener("keydown",(e)=>{ if(e.key==="Enter") searchTitle(); });
-elTitleResults.addEventListener("click",(e)=>{
-  const b=e.target.closest("button");
-  if(!b) return;
-  const isbn=b.getAttribute("data-add-isbn");
-  if(!isbn || !DB || !DB[isbn]) return;
-  const row=DB[isbn];
-  addToCart(isbn, row, parsePriceToNumber(row.p));
-  setTab("tabCaja");
-});
-
 
 /* ===== Caja ===== */
-function loadCart(){ try{ return JSON.parse(localStorage.getItem(CART_KEY)||"{}")||{}; }catch{ return {}; } }
+function loadCart(){ try{ return JSON.parse(localStorage.getItem(CART_KEY)||"{}") )||{}; }catch{ return {}; } }
 function saveCart(c){ localStorage.setItem(CART_KEY, JSON.stringify(c)); }
 function cartTotal(c){ let t=0; for(const k of Object.keys(c)) t+=(c[k].price||0)*(c[k].qty||0); return t; }
 
@@ -363,13 +406,8 @@ function addToCart(code,row,price){
   renderCart();
 }
 function renderCart(){
-  const c=loadCart();
-  const codes=Object.keys(c);
-  if(!codes.length){
-    elCart.innerHTML='<div class="muted" style="margin-top:10px;">Sin items.</div>';
-    elTotal.textContent=fmtMoney(0);
-    return;
-  }
+  const c=loadCart(); const codes=Object.keys(c);
+  if(!codes.length){ elCart.innerHTML='<div class="muted" style="margin-top:10px;">Sin items.</div>'; elTotal.textContent=fmtMoney(0); return; }
   let html="";
   for(const code of codes){
     const it=c[code];
@@ -397,7 +435,10 @@ elCart.addEventListener("click",(e)=>{
   saveCart(c);
   renderCart();
 });
-document.getElementById("resetCartBtn").onclick=()=>{ localStorage.removeItem(CART_KEY); renderCart(); };
+
+/* ===== Historial ===== */
+function loadHist(){ try{ return JSON.parse(localStorage.getItem(HIST_KEY)||"[]")||[]; }catch{ return []; } }
+function saveHist(arr){ localStorage.setItem(HIST_KEY, JSON.stringify(arr)); }
 
 function cartToText(cart){
   const lines=[]; let total=0;
@@ -408,16 +449,6 @@ function cartToText(cart){
   lines.push(`TOTAL: ${fmtMoney(total)}`);
   return lines.join("\n");
 }
-elShare.onclick=async()=>{
-  const cart=loadCart(); const txt=cartToText(cart);
-  try{ await navigator.clipboard.writeText(txt); alert("Copiado ✅"); }
-  catch{ prompt("Copiá:", txt); }
-};
-
-/* ===== Historial ===== */
-function loadHist(){ try{ return JSON.parse(localStorage.getItem(HIST_KEY)||"[]")||[]; }catch{ return []; } }
-function saveHist(arr){ localStorage.setItem(HIST_KEY, JSON.stringify(arr)); }
-
 function saveSale(){
   const cart=loadCart();
   if(!Object.keys(cart).length){ alert("La cuenta está vacía."); return; }
@@ -428,8 +459,6 @@ function saveSale(){
   renderCart(); renderHist();
   alert("Venta guardada ✅");
 }
-elSaveSale.onclick=saveSale;
-
 function renderHist(){
   const hist=loadHist();
   if(!hist.length){ elHist.innerHTML='<div class="muted" style="margin-top:10px;">Sin ventas guardadas.</div>'; return; }
@@ -453,14 +482,40 @@ elHist.addEventListener("click", async (e)=>{
   const act=b.dataset.hact, id=b.dataset.hid;
   const hist=loadHist(); const s=hist.find(x=>x.id===id); if(!s) return;
   if(act==="del"){ saveHist(hist.filter(x=>x.id!==id)); renderHist(); }
-  if(act==="copy"){
+  if(act==="copy"){ 
     const txt=cartToText(s.items||{});
     try{ await navigator.clipboard.writeText(txt); alert("Copiado ✅"); }
     catch{ prompt("Copiá:", txt); }
   }
 });
-elClearHist.onclick=()=>{ if(confirm("¿Borrar todo el historial?")){ localStorage.removeItem(HIST_KEY); renderHist(); } };
-elExportHist.onclick=async()=>{
+
+/* ===== Wire Buttons ===== */
+elBuscarBtn.onclick=lookup;
+elLimpiarBtn.onclick=()=>{ elISBN.value=""; elResult.innerHTML=""; elISBN.focus(); };
+elISBN.addEventListener("keydown",(e)=>{ if(e.key==="Enter") lookup(); });
+
+elBuscarTituloBtn.onclick=searchTitle;
+elLimpiarTituloBtn.onclick=()=>{ elQTitle.value=""; elTitleResults.innerHTML=""; elQTitle.focus(); };
+elQTitle.addEventListener("keydown",(e)=>{ if(e.key==="Enter") searchTitle(); });
+elTitleResults.addEventListener("click",(e)=>{
+  const b=e.target.closest("button");
+  if(!b) return;
+  const isbn=b.getAttribute("data-add-isbn");
+  if(!isbn || !DB || !DB[isbn]) return;
+  const row=DB[isbn];
+  addToCart(isbn, row, parsePriceToNumber(row.p));
+  setTab("tabCaja");
+});
+
+document.getElementById("resetCartBtn").onclick=()=>{ localStorage.removeItem(CART_KEY); renderCart(); };
+elSaveSale.onclick=saveSale;
+elShare.onclick=async()=>{
+  const cart=loadCart(); const txt=cartToText(cart);
+  try{ await navigator.clipboard.writeText(txt); alert("Copiado ✅"); }
+  catch{ prompt("Copiá este texto:", txt); }
+};
+elExportHistBtn=document.getElementById("exportHistBtn");
+elExportHistBtn.onclick=async()=>{
   const hist=loadHist(); const lines=[];
   for(const s of hist){
     const when=s.at?new Date(s.at).toLocaleString("es-AR"):"";
@@ -472,16 +527,16 @@ elExportHist.onclick=async()=>{
   try{ await navigator.clipboard.writeText(txt); alert("Historial copiado ✅"); }
   catch{ prompt("Copiá:", txt); }
 };
+elClearHist.onclick=()=>{ if(confirm("¿Borrar todo el historial?")){ localStorage.removeItem(HIST_KEY); renderHist(); } };
 
-/* ===== Buttons ===== */
 elUpdateBtn.onclick=()=>updateCentral(true).catch(e=>{ setStatus("Error al actualizar: "+e.message, false); log("update_error", String(e)); });
 elClearCacheBtn.onclick=async()=>{
   try{
     localStorage.removeItem(META_KEY);
     await idbClear();
-    DB=null;
+    DB=null; SEARCH_IDX=null;
     setStatus("Cache borrado. Tocá 'Actualizar lista'.", null);
-    elResult.innerHTML="";
+    elResult.innerHTML=""; elTitleResults.innerHTML="";
   }catch(e){
     setStatus("Error borrando cache: "+e.message, false);
     log("clear_error", String(e));
@@ -490,16 +545,8 @@ elClearCacheBtn.onclick=async()=>{
 
 /* ===== Boot ===== */
 (async function boot(){
-  if(location.protocol==="file:"){
-    setStatus("Abriste desde Archivos (file://). Abrí desde GitHub Pages (https://...).", false);
-    log("protocol", location.protocol);
-    return;
-  }
-  if(!window.indexedDB){
-    setStatus("Este navegador no soporta IndexedDB (necesario).", false);
-    log("indexeddb", false);
-    return;
-  }
+  if(location.protocol==="file:"){ setStatus("Abriste desde Archivos (file://). Abrí desde GitHub Pages (https://...).", false); log("protocol", location.protocol); return; }
+  if(!window.indexedDB){ setStatus("Este navegador no soporta IndexedDB (necesario).", false); log("indexeddb", false); return; }
   const ok = await loadFromCache();
   if(!ok) setStatus("No hay cache. Tocá 'Actualizar lista'.", null);
   updateCentral(false).catch(e=>log("bg_update_error", String(e)));
