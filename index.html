@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Waldhuter - Buscador (v8)</title>
+<style>
+:root{font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+body{margin:0;padding:16px;line-height:1.25}
+h1{font-size:18px;margin:0 0 10px}
+.card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0}
+.muted{color:#666;font-size:13px}
+label{font-size:13px;color:#333;display:block;margin:10px 0 6px}
+input[type=text]{width:100%;font-size:18px;padding:12px;border-radius:12px;border:1px solid #ccc;background:#fff}
+button{width:100%;font-size:17px;padding:12px;border-radius:12px;border:0;background:#111;color:#fff;margin-top:10px}
+button.secondary{background:#f2f2f2;color:#111;border:1px solid #ddd}
+button.danger{background:#b00020}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;background:#f2f2f2;font-size:12px}
+.result-title{font-size:16px;font-weight:900;margin:0 0 6px}
+.result-line{font-size:15px;margin:2px 0}
+.bad{color:#b00020}
+.ok{color:#0a7a2f}
+.tabs{display:flex;gap:8px;margin:10px 0}
+.tab{flex:1;text-align:center;padding:10px;border-radius:12px;border:1px solid #ddd;background:#fff;font-weight:800}
+.tab.active{background:#111;color:#fff;border:0}
+.cart-item{padding:10px 0;border-top:1px solid #eee}
+.cart-title{font-weight:900;font-size:14px;margin:0 0 4px}
+.cart-sub{font-size:13px;color:#444;margin:0}
+.cart-actions{display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap}
+.iconbtn{width:46px;height:46px;border-radius:999px;border:0;font-size:22px;line-height:46px;text-align:center}
+.iconbtn.plus{background:#111;color:#fff}
+.iconbtn.minus{background:#f2f2f2;color:#111;border:1px solid #ddd}
+.iconbtn.del{background:#b00020;color:#fff;width:auto;padding:0 14px;font-size:14px;border-radius:12px;height:46px;line-height:46px}
+.qty{min-width:38px;text-align:center;font-weight:1000;font-size:18px}
+#modalBack{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px}
+#modal{width:100%;max-width:520px;background:#fff;border-radius:16px;padding:14px}
+pre{white-space:pre-wrap;word-break:break-word}
+details>summary{cursor:pointer}
+.small{font-size:12px;color:#666}
+</style>
+</head>
+<body>
+<h1>Waldhuter - Buscador</h1>
+<div class="muted">v8.1 (completa + búsqueda por título): Buscar + Caja + Historial. Lista grande en <span class="pill">IndexedDB</span> (iPhone OK). Si algo falla, lo ves en “Diagnóstico”.</div>
+
+<div class="tabs">
+  <div id="tabBuscar" class="tab active">Buscar</div>
+  <div id="tabCaja" class="tab">Caja</div>
+  <div id="tabHist" class="tab">Historial</div>
+</div>
+
+<div class="card">
+  <div id="status" class="muted">Cargando…</div>
+  <div class="row">
+    <button id="updateBtn" type="button">Actualizar lista</button>
+    <button id="clearCacheBtn" class="secondary" type="button">Borrar cache</button>
+  </div>
+  <details style="margin-top:10px;">
+    <summary class="muted">Ver diagnóstico</summary>
+    <pre id="diag" class="muted"></pre>
+  </details>
+</div>
+
+<!-- Buscar -->
+<div id="viewBuscar">
+  <div class="card">
+    <label>Buscar por título</label>
+    <input id="qtitle" type="text" placeholder="Escribí parte del título (ej: principito)" />
+    <div class="row">
+      <button id="buscarTituloBtn" class="secondary" type="button">Buscar título</button>
+      <button id="limpiarTituloBtn" class="secondary" type="button">Limpiar</button>
+    </div>
+    <div id="titleResults" style="margin-top:12px;"></div>
+
+    <div class="muted" style="margin-top:12px;">— o —</div>
+    <label>ISBN-13</label>
+    <input id="isbn" type="text" inputmode="numeric" placeholder="Escaneá/pegá el ISBN (13 dígitos)" />
+    <div class="row">
+      <button id="buscarBtn" type="button">Buscar</button>
+      <button id="limpiarBtn" class="secondary" type="button">Limpiar</button>
+    </div>
+    <div id="result" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- Caja -->
+<div id="viewCaja" style="display:none;">
+  <div class="card">
+    <div class="result-title">Cuenta</div>
+    <div class="muted">Total: <span class="pill" id="totalPill">$0</span></div>
+    <div id="cart"></div>
+    <div class="row">
+      <button id="saveSaleBtn" type="button">Guardar venta</button>
+      <button id="resetCartBtn" class="secondary" type="button">Vaciar cuenta</button>
+    </div>
+    <button id="shareBtn" class="secondary" type="button">Compartir (copiar texto)</button>
+  </div>
+</div>
+
+<!-- Historial -->
+<div id="viewHist" style="display:none;">
+  <div class="card">
+    <div class="result-title">Historial</div>
+    <div class="muted">Queda guardado en el teléfono.</div>
+    <div class="row">
+      <button id="exportHistBtn" class="secondary" type="button">Exportar (copiar)</button>
+      <button id="clearHistBtn" class="danger" type="button">Borrar todo</button>
+    </div>
+    <div id="hist"></div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modalBack">
+  <div id="modal">
+    <div class="result-title">¿Agregar a la cuenta?</div>
+    <div id="modalBody" class="muted" style="margin-top:8px;"></div>
+    <div class="row" style="margin-top:12px;">
+      <button id="modalYes" type="button">Sí, agregar</button>
+      <button id="modalNo" class="secondary" type="button">No</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== Diagnostics ===== */
+const diag = { ua:navigator.userAgent, href:location.href, origin:location.origin, online:navigator.onLine, t0:new Date().toISOString() };
+const elDiag=document.getElementById("diag");
+function log(k,v){ diag[k]=v; elDiag.textContent=JSON.stringify(diag,null,2); }
+window.addEventListener("error",(e)=>log("window_error", String(e.message||e.error||e)));
+window.addEventListener("unhandledrejection",(e)=>log("unhandledrejection", String(e.reason||e)));
+
+/* ===== UI / Tabs ===== */
+const tabBuscar=document.getElementById("tabBuscar");
+const tabCaja=document.getElementById("tabCaja");
+const tabHist=document.getElementById("tabHist");
+const viewBuscar=document.getElementById("viewBuscar");
+const viewCaja=document.getElementById("viewCaja");
+const viewHist=document.getElementById("viewHist");
+function setTab(which){
+  for(const [t,v] of [[tabBuscar,viewBuscar],[tabCaja,viewCaja],[tabHist,viewHist]]){
+    const active=t.id===which;
+    t.classList.toggle("active",active);
+    v.style.display=active?"":"none";
+  }
+  if(which==="tabCaja") renderCart();
+  if(which==="tabHist") renderHist();
+}
+tabBuscar.onclick=()=>setTab("tabBuscar");
+tabCaja.onclick=()=>setTab("tabCaja");
+tabHist.onclick=()=>setTab("tabHist");
+
+/* ===== Elements ===== */
+const elStatus=document.getElementById("status");
+const elUpdateBtn=document.getElementById("updateBtn");
+const elClearCacheBtn=document.getElementById("clearCacheBtn");
+const elISBN=document.getElementById("isbn");
+const elQTitle=document.getElementById("qtitle");
+const elBuscarTituloBtn=document.getElementById("buscarTituloBtn");
+const elLimpiarTituloBtn=document.getElementById("limpiarTituloBtn");
+const elTitleResults=document.getElementById("titleResults");
+const elBuscarBtn=document.getElementById("buscarBtn");
+const elLimpiarBtn=document.getElementById("limpiarBtn");
+const elResult=document.getElementById("result");
+const elCart=document.getElementById("cart");
+const elTotal=document.getElementById("totalPill");
+const elResetCart=document.getElementById("resetCartBtn");
+const elSaveSale=document.getElementById("saveSaleBtn");
+const elShare=document.getElementById("shareBtn");
+const elHist=document.getElementById("hist");
+const elExportHist=document.getElementById("exportHistBtn");
+const elClearHist=document.getElementById("clearHistBtn");
+
+const modalBack=document.getElementById("modalBack");
+const modalBody=document.getElementById("modalBody");
+const modalYes=document.getElementById("modalYes");
+const modalNo=document.getElementById("modalNo");
+
+function setStatus(t, ok=null){
+  elStatus.textContent=t;
+  elStatus.className="muted"+(ok===true?" ok":ok===false?" bad":"");
+}
+function normalizeISBN(s){ return (s||"").toString().replace(/[^\dX]/gi,"").trim(); }
+function parsePriceToNumber(p){
+  let s=String(p||"").trim(); if(!s) return 0;
+  s=s.replace(/\s/g,"").replace(/[^0-9.,-]/g,"");
+  if(s.includes(".")&&s.includes(",")) s=s.replace(/\./g,"").replace(",", ".");
+  else if(s.includes(",")&&!s.includes(".")) s=s.replace(",", ".");
+  const n=Number(s); return isFinite(n)?n:0;
+}
+function fmtMoney(n){ try{return n.toLocaleString("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:2});}catch{return "$"+n;} }
+function nowISO(){ try{return new Date().toISOString();}catch{return ""; } }
+
+/* ===== Storage ===== */
+const META_KEY="waldhuter_meta_v8";
+const CART_KEY="waldhuter_cart_v8";
+const HIST_KEY="waldhuter_hist_v8";
+
+const IDB_NAME="waldhuter_v8";
+const IDB_STORE="db";
+
+function metaLoad(){ try{ return JSON.parse(localStorage.getItem(META_KEY)||"null"); }catch(e){ log("meta_parse_error", String(e)); return null; } }
+function metaSave(m){ localStorage.setItem(META_KEY, JSON.stringify(m)); }
+
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(IDB_NAME,1);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE,{keyPath:"id"});
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function idbPut(id,data){
+  const db=await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_STORE,"readwrite");
+    tx.objectStore(IDB_STORE).put({id,data});
+    tx.oncomplete=()=>resolve(true);
+    tx.onerror=()=>reject(tx.error);
+  });
+}
+async function idbGet(id){
+  const db=await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_STORE,"readonly");
+    const rq=tx.objectStore(IDB_STORE).get(id);
+    rq.onsuccess=()=>resolve(rq.result ? rq.result.data : null);
+    rq.onerror=()=>reject(rq.error);
+  });
+}
+async function idbClear(){
+  const db=await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_STORE,"readwrite");
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete=()=>resolve(true);
+    tx.onerror=()=>reject(tx.error);
+  });
+}
+
+/* ===== Data ===== */
+let DB=null;
+let SEARCH_IDX=null;
+
+async function fetchJSON(url){
+  const r=await fetch(url,{cache:"no-store"});
+  if(!r.ok) throw new Error("HTTP "+r.status+" en "+url);
+  return await r.json();
+}
+
+async function loadFromCache(){
+  try{
+    const db=await idbGet("central");
+    const meta=metaLoad();
+    if(db && meta){
+      DB=db;
+      SEARCH_IDX=null;
+      setStatus("Lista desde cache ✅ ("+Number(meta.count||0).toLocaleString("es-AR")+" ISBN) · ver "+meta.version, true);
+      return true;
+    }
+  }catch(e){ log("load_cache_error", String(e)); }
+  return false;
+}
+
+async function updateCentral(force=false){
+  if(!navigator.onLine){ setStatus("Sin internet: uso cache si existe.", null); return false; }
+  setStatus(force?"Descargando lista…":"Verificando actualización…", null);
+  const remote = await fetchJSON("./version.json?v="+Date.now());
+  const local = metaLoad();
+  const changed = force || !local || local.version !== remote.version;
+  if(!changed){
+    setStatus("Lista al día ✅ ("+Number(remote.count||0).toLocaleString("es-AR")+" ISBN)", true);
+    return false;
+  }
+  setStatus("Bajando libros.json…", null);
+  const db = await fetchJSON("./libros.json?v="+Date.now());
+  setStatus("Guardando en el teléfono…", null);
+  await idbPut("central", db);
+  metaSave({version: remote.version, count: remote.count||Object.keys(db).length, updatedAt: new Date().toISOString()});
+  DB=db;
+  setStatus("Lista actualizada ✅ ("+Number(Object.keys(db).length).toLocaleString("es-AR")+" ISBN)", true);
+  return true;
+}
+
+/* ===== Buscar + modal add ===== */
+function renderNotFound(code){ return `<div class="card"><div class="result-title bad">No lo encontré</div><div class="result-line"><b>ISBN:</b> ${code}</div></div>`; }
+function renderRow(code,row){
+  const price=parsePriceToNumber(row.p);
+  const s=(row.s??"").toString().trim();
+  const a=(row.a??"").toString().trim();
+  const ed=(row.e??"").toString().trim();
+  return `<div class="card"><div class="result-title">${row.t||"(sin título)"}</div>
+    <div class="result-line"><b>ISBN:</b> ${code}</div>
+    <div class="result-line"><b>PVP:</b> ${fmtMoney(price)}</div>
+    ${s?`<div class="result-line"><b>Stock:</b> ${s}</div>`:""}
+    ${a?`<div class="result-line"><b>Autor:</b> ${a}</div>`:""}
+    ${ed?`<div class="result-line"><b>Editorial:</b> ${ed}</div>`:""}
+  </div>`;
+}
+
+function openModal(found){
+  modalBody.innerHTML=`<div><b>${found.row.t||"(sin título)"}</b></div>
+    <div class="muted" style="margin-top:6px;">${fmtMoney(found.price)} · ISBN ${found.code}</div>
+    <div class="muted" style="margin-top:6px;">¿Agregar a la cuenta?</div>`;
+  modalBack.style.display="flex";
+  window.__LAST_FOUND=found;
+}
+function closeModal(){ modalBack.style.display="none"; window.__LAST_FOUND=null; }
+modalNo.onclick=()=>{ closeModal(); elISBN.select(); elISBN.focus(); };
+modalYes.onclick=()=>{
+  const f=window.__LAST_FOUND; if(!f){ closeModal(); return; }
+  addToCart(f.code, f.row, f.price);
+  closeModal();
+  elISBN.value=""; elResult.innerHTML=""; elISBN.focus();
+  setTab("tabCaja");
+};
+
+function lookup(){
+  const code=normalizeISBN(elISBN.value);
+  if(!code){ elResult.innerHTML=""; return; }
+  if(!DB){
+    elResult.innerHTML=`<div class="card"><div class="result-title bad">No hay lista cargada</div><div class="muted">Tocá “Actualizar lista”.</div></div>`;
+    return;
+  }
+  const row=DB[code];
+  if(!row){ elResult.innerHTML=renderNotFound(code); return; }
+  elResult.innerHTML=renderRow(code,row);
+  openModal({code,row,price:parsePriceToNumber(row.p)});
+}
+elBuscarBtn.onclick=lookup;
+elLimpiarBtn.onclick=()=>{ elISBN.value=""; elResult.innerHTML=""; elISBN.focus(); };
+elISBN.addEventListener("keydown",(e)=>{ if(e.key==="Enter") lookup(); });
+
+elBuscarTituloBtn.onclick=searchTitle;
+elLimpiarTituloBtn.onclick=()=>{ elQTitle.value=""; elTitleResults.innerHTML=""; elQTitle.focus(); };
+elQTitle.addEventListener("keydown",(e)=>{ if(e.key==="Enter") searchTitle(); });
+elTitleResults.addEventListener("click",(e)=>{
+  const b=e.target.closest("button");
+  if(!b) return;
+  const isbn=b.getAttribute("data-add-isbn");
+  if(!isbn || !DB || !DB[isbn]) return;
+  const row=DB[isbn];
+  addToCart(isbn, row, parsePriceToNumber(row.p));
+  setTab("tabCaja");
+});
+
+
+/* ===== Caja ===== */
+function loadCart(){ try{ return JSON.parse(localStorage.getItem(CART_KEY)||"{}")||{}; }catch{ return {}; } }
+function saveCart(c){ localStorage.setItem(CART_KEY, JSON.stringify(c)); }
+function cartTotal(c){ let t=0; for(const k of Object.keys(c)) t+=(c[k].price||0)*(c[k].qty||0); return t; }
+
+function addToCart(code,row,price){
+  const c=loadCart();
+  if(!c[code]) c[code]={title:row.t||"", price:price||0, qty:1};
+  else c[code].qty=(c[code].qty||0)+1;
+  saveCart(c);
+  renderCart();
+}
+function renderCart(){
+  const c=loadCart();
+  const codes=Object.keys(c);
+  if(!codes.length){
+    elCart.innerHTML='<div class="muted" style="margin-top:10px;">Sin items.</div>';
+    elTotal.textContent=fmtMoney(0);
+    return;
+  }
+  let html="";
+  for(const code of codes){
+    const it=c[code];
+    html+=`<div class="cart-item">
+      <p class="cart-title">${it.title||"(sin título)"}</p>
+      <p class="cart-sub">ISBN: ${code} · ${fmtMoney(it.price||0)}</p>
+      <div class="cart-actions">
+        <button class="iconbtn minus" data-act="dec" data-code="${code}">−</button>
+        <span class="qty">${it.qty||0}</span>
+        <button class="iconbtn plus" data-act="inc" data-code="${code}">+</button>
+        <button class="iconbtn del" data-act="del" data-code="${code}">Quitar</button>
+      </div>
+    </div>`;
+  }
+  elCart.innerHTML=html;
+  elTotal.textContent=fmtMoney(cartTotal(c));
+}
+elCart.addEventListener("click",(e)=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const act=b.dataset.act, code=b.dataset.code;
+  const c=loadCart(); if(!c[code]) return;
+  if(act==="inc") c[code].qty=(c[code].qty||0)+1;
+  if(act==="dec") c[code].qty=Math.max(1,(c[code].qty||1)-1);
+  if(act==="del") delete c[code];
+  saveCart(c);
+  renderCart();
+});
+document.getElementById("resetCartBtn").onclick=()=>{ localStorage.removeItem(CART_KEY); renderCart(); };
+
+function cartToText(cart){
+  const lines=[]; let total=0;
+  for(const code of Object.keys(cart)){
+    const it=cart[code]; const sub=(it.price||0)*(it.qty||0); total+=sub;
+    lines.push(`${it.title} x${it.qty} — ${fmtMoney(sub)} (ISBN ${code})`);
+  }
+  lines.push(`TOTAL: ${fmtMoney(total)}`);
+  return lines.join("\n");
+}
+elShare.onclick=async()=>{
+  const cart=loadCart(); const txt=cartToText(cart);
+  try{ await navigator.clipboard.writeText(txt); alert("Copiado ✅"); }
+  catch{ prompt("Copiá:", txt); }
+};
+
+/* ===== Historial ===== */
+function loadHist(){ try{ return JSON.parse(localStorage.getItem(HIST_KEY)||"[]")||[]; }catch{ return []; } }
+function saveHist(arr){ localStorage.setItem(HIST_KEY, JSON.stringify(arr)); }
+
+function saveSale(){
+  const cart=loadCart();
+  if(!Object.keys(cart).length){ alert("La cuenta está vacía."); return; }
+  const meta=metaLoad();
+  const sale={ id:"sale_"+Date.now(), at:nowISO(), version:(meta&&meta.version)||null, items:cart, total:cartTotal(cart) };
+  const hist=loadHist(); hist.unshift(sale); saveHist(hist);
+  localStorage.removeItem(CART_KEY);
+  renderCart(); renderHist();
+  alert("Venta guardada ✅");
+}
+elSaveSale.onclick=saveSale;
+
+function renderHist(){
+  const hist=loadHist();
+  if(!hist.length){ elHist.innerHTML='<div class="muted" style="margin-top:10px;">Sin ventas guardadas.</div>'; return; }
+  let html="";
+  for(const s of hist){
+    const when=s.at?new Date(s.at).toLocaleString("es-AR"):"";
+    const count=Object.keys(s.items||{}).length;
+    html+=`<div class="cart-item">
+      <div style="font-weight:900">${fmtMoney(s.total||0)} <span class="small">(${count} ítems)</span></div>
+      <div class="small">${when}${s.version?(" · lista "+s.version):""}</div>
+      <div class="row" style="margin-top:8px;">
+        <button class="secondary" data-hact="copy" data-hid="${s.id}">Copiar</button>
+        <button class="danger" data-hact="del" data-hid="${s.id}">Borrar</button>
+      </div>
+    </div>`;
+  }
+  elHist.innerHTML=html;
+}
+elHist.addEventListener("click", async (e)=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const act=b.dataset.hact, id=b.dataset.hid;
+  const hist=loadHist(); const s=hist.find(x=>x.id===id); if(!s) return;
+  if(act==="del"){ saveHist(hist.filter(x=>x.id!==id)); renderHist(); }
+  if(act==="copy"){
+    const txt=cartToText(s.items||{});
+    try{ await navigator.clipboard.writeText(txt); alert("Copiado ✅"); }
+    catch{ prompt("Copiá:", txt); }
+  }
+});
+elClearHist.onclick=()=>{ if(confirm("¿Borrar todo el historial?")){ localStorage.removeItem(HIST_KEY); renderHist(); } };
+elExportHist.onclick=async()=>{
+  const hist=loadHist(); const lines=[];
+  for(const s of hist){
+    const when=s.at?new Date(s.at).toLocaleString("es-AR"):"";
+    lines.push(`VENTA ${when} — ${fmtMoney(s.total||0)}${s.version?(" — lista "+s.version):""}`);
+    lines.push(cartToText(s.items||{}));
+    lines.push("----");
+  }
+  const txt=lines.join("\n");
+  try{ await navigator.clipboard.writeText(txt); alert("Historial copiado ✅"); }
+  catch{ prompt("Copiá:", txt); }
+};
+
+/* ===== Buttons ===== */
+elUpdateBtn.onclick=()=>updateCentral(true).catch(e=>{ setStatus("Error al actualizar: "+e.message, false); log("update_error", String(e)); });
+elClearCacheBtn.onclick=async()=>{
+  try{
+    localStorage.removeItem(META_KEY);
+    await idbClear();
+    DB=null;
+    setStatus("Cache borrado. Tocá 'Actualizar lista'.", null);
+    elResult.innerHTML="";
+  }catch(e){
+    setStatus("Error borrando cache: "+e.message, false);
+    log("clear_error", String(e));
+  }
+};
+
+/* ===== Boot ===== */
+(async function boot(){
+  if(location.protocol==="file:"){
+    setStatus("Abriste desde Archivos (file://). Abrí desde GitHub Pages (https://...).", false);
+    log("protocol", location.protocol);
+    return;
+  }
+  if(!window.indexedDB){
+    setStatus("Este navegador no soporta IndexedDB (necesario).", false);
+    log("indexeddb", false);
+    return;
+  }
+  const ok = await loadFromCache();
+  if(!ok) setStatus("No hay cache. Tocá 'Actualizar lista'.", null);
+  updateCentral(false).catch(e=>log("bg_update_error", String(e)));
+  log("boot_ok", true);
+})();
+</script>
+</body>
+</html>
